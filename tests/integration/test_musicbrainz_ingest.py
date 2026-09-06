@@ -16,8 +16,6 @@ from jobs.musicbrainz_ingest.staging import ensure_staging_schema
 from jobs.musicbrainz_ingest.transform import transform_all
 from jobs.musicbrainz_ingest.config import IngestConfig
 
-TEST_DSN = "postgresql://postgres:postgres@localhost:5432/musicdiscovery_test"
-
 
 @pytest.fixture(autouse=True)
 def clean_staging_schema(db_session):
@@ -119,8 +117,8 @@ def _seed_staging(session):
     session.commit()
 
 
-def test_transform_all_populates_canonical_tables_correctly(engine, db_session):
-    ensure_staging_schema(TEST_DSN, IngestConfig())
+def test_transform_all_populates_canonical_tables_correctly(engine, db_session, test_dsn):
+    ensure_staging_schema(test_dsn, IngestConfig())
     _seed_staging(db_session)
 
     with engine.begin() as conn:
@@ -175,8 +173,8 @@ def test_transform_all_populates_canonical_tables_correctly(engine, db_session):
     assert release_row == ("Official", "eng")
 
 
-def test_transform_is_idempotent_on_rerun(engine, db_session):
-    ensure_staging_schema(TEST_DSN, IngestConfig())
+def test_transform_is_idempotent_on_rerun(engine, db_session, test_dsn):
+    ensure_staging_schema(test_dsn, IngestConfig())
     _seed_staging(db_session)
 
     with engine.begin() as conn:

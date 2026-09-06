@@ -1,3 +1,5 @@
+set search_path = music_catalog, public;
+
 -- Provider identifiers are mappings onto the canonical recording, never the
 -- primary key for a song. A row can exist with status='unresolved' and a
 -- null provider_track_id — that's how "we tried to resolve this recording

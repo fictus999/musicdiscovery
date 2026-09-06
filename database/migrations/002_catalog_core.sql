@@ -1,3 +1,7 @@
+-- Lands every table below in the music_catalog schema (see 001's
+-- search_path note) rather than public.
+set search_path = music_catalog, public;
+
 -- Canonical catalog, reconciled against MusicBrainz's real entity graph —
 -- verified against `mbdata` (MetaBrainz's own SQLAlchemy schema mirror,
 -- PyPI mbdata==31.0.1), not assumed from memory. See docs/architecture.md

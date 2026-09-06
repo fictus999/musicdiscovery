@@ -1,3 +1,5 @@
+set search_path = app, music_catalog, public;
+
 -- Saved songs, search history, and interaction events. user_id is nullable
 -- throughout: search and recommendations work for anonymous/unauthenticated
 -- product usage (V2.2 §5 — no provider or app login required to discover).

@@ -1,3 +1,9 @@
+-- Lands every table below in the app schema (see 001's search_path note);
+-- music_catalog stays on the path too so FK references like
+-- `references catalog_sources(id)` below still resolve without
+-- schema-qualifying every reference by hand.
+set search_path = app, music_catalog, public;
+
 -- App-side identity and entitlements. app_users.id mirrors the Supabase Auth
 -- user id (auth.users) rather than duplicating authentication — this table
 -- holds product-specific profile/entitlement state only.

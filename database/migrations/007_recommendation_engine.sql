@@ -1,3 +1,5 @@
+set search_path = app, music_catalog, public;
+
 -- Recommendation engine tables. Phase 1 only ever writes into song_features
 -- with feature_family = 'metadata'; song_embeddings stays empty until
 -- Phase 2 has an approved, permitted feature source (see

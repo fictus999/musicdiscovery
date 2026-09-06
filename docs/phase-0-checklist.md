@@ -7,6 +7,11 @@ Phase 1 scaffolding (schema, provider interfaces, mocked adapters) — see
 **Blocks Phase 1 go-live** must clear before Phase 1 is exposed to real users; the rest
 gate Phase 2 or general production launch.
 
+**Local development is unblocked by all of this.** Every item below gates *production*
+reliance on a provider, a dataset, or paid infrastructure. Nothing here waits on a Docker
+Postgres instance, a small dev fixture, or CI — see `README.md`'s local-development
+section and `docs/architecture.md` section D.
+
 | # | Item | Status | Blocks Phase 1 go-live? |
 |---|---|---|---|
 | 1 | Spotify Developer dashboard: confirm current quota mode, allowed users, scopes, and which endpoints actually respond for this app | Open — requires a real Spotify developer account | Only for the Authorization Code (connected-account) path; Client Credentials catalog resolution is unaffected |

@@ -63,6 +63,39 @@ throws away information MusicBrainz's own dump provides for free.
 | `work_external_ids` | ISWC | same shape, for works |
 | `catalog_sources`, `provider_track_mappings`, `artwork`, `catalog_search_cache` | Unchanged from the first pass | provider-adjacent, not MusicBrainz-shaped |
 
+### Database topology: one instance, two schemas
+
+**Decision**: one PostgreSQL database/instance for both the canonical catalog and the
+application tables — not two separate databases. All of section A's tables live in a
+`music_catalog` schema; `app_users`, `subscriptions`, `saved_songs`, `user_interactions`,
+`recommendations`, and the rest of the application/behavioral tables live in an `app`
+schema. Both schemas, one database, so:
+
+- Foreign keys stay enforced across the split (`app.saved_songs.recording_id →
+  music_catalog.recording.id` is a normal in-database FK — Postgres foreign keys work
+  across schemas within one database; they do not work across separate databases).
+- Transactions spanning both (e.g. "save a song" touching `saved_songs` and reading
+  `recording`) stay single-transaction, no distributed-transaction complexity.
+- At the target scale (1,000–5,000 initial users), splitting into physically separate
+  databases now would add operational complexity (two connection pools, no cross-database
+  FK integrity, more failure surface) without solving a problem this project actually has.
+
+The separation is enforced by `search_path`, not by schema-qualifying every table
+reference: each migration file sets `search_path` at its own top (`music_catalog, public`
+for the catalog migrations, `app, music_catalog, public` for the application ones — see
+`database/migrations/00*.sql`), and the application's database connection
+(`apps/api/app/db/session.py`'s `SEARCH_PATH` constant) sets the same path, so every query
+elsewhere in the codebase keeps using bare table names (`recording`, `saved_songs`, ...)
+with no code changes. This was chosen over hand schema-qualifying every reference because
+it achieves the same physical separation (`\dt music_catalog.*` vs `\dt app.*` show the
+real split; a future `pg_dump -n music_catalog` extracts exactly the catalog) with far
+less surface area for a mistake.
+
+If scale or cost ever requires physically splitting the catalog onto its own database —
+the reason this is schema-separated rather than left as one flat schema — that migration
+starts from an already-clean boundary instead of picking tables out of a merged schema
+after the fact.
+
 ### Deliberate simplifications (and why)
 
 - **No `area`/`country_area` modeling.** Artist birthplace/label country isn't used by
@@ -182,7 +215,22 @@ Indexing:
   `song_embeddings` table is dead weight, and ivfflat/hnsw tuning parameters need a real
   data distribution to choose sensibly. That's a Phase 2 migration.
 
-## D. Required paid infrastructure components
+## D. Infrastructure: $0 development, paid production
+
+Development and production are deliberately different infrastructure, on purpose, not
+because of a shortcut: this section covers production; local/CI development runs
+entirely on unpaid infrastructure, documented in `README.md`'s local-development section
+and `docker-compose.yml`. Concretely: a single Dockerized PostgreSQL
+(`pgvector/pgvector:pg16`, one instance, `music_catalog`/`app` schemas per the topology
+above) for a developer's machine, the same image as a GitHub Actions service container
+for CI, and a small hand-authored fixture (`jobs/musicbrainz_ingest/dev_fixture.py` —
+**not** a filtered "popular songs" production catalog; see that module's docstring) run
+through the real ingestion pipeline instead of the full MusicBrainz dump. None of this
+requires Supabase Pro, a managed Postgres tier, or any spend — Supabase Free may still be
+used for Auth during development, but it is not where the catalog lives even in dev,
+consistent with the production topology below.
+
+### Required paid infrastructure components (production only)
 
 - **Managed PostgreSQL**, not the Supabase free tier's 500MB — mandatory from Phase 1
   regardless of exact size. **Do not assume Supabase Pro's included 8GB is sufficient**;

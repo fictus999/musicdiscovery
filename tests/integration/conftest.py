@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -8,7 +9,22 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/musicdiscovery_test"
+# Overridable via env so CI (a different Postgres service container, likely
+# different credentials/db name than this repo's local docker-compose
+# setup) doesn't need to match this exact default. TEST_DSN is the same
+# database in plain psycopg form (no `+psycopg` dialect suffix) for the
+# ingestion pipeline's raw-psycopg calls (staging.py) — jobs/musicbrainz_ingest
+# tests import it from here rather than hardcoding a second copy that could
+# drift out of sync with TEST_DATABASE_URL.
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/musicdiscovery_test"
+)
+TEST_DSN = TEST_DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
+
+# Must match apps/api/app/db/session.py's SEARCH_PATH — the migrations
+# place tables in music_catalog/app, not public, so tests need the same
+# resolution path the application uses.
+_SEARCH_PATH_CONNECT_ARGS = {"options": "-c search_path=music_catalog,app,public"}
 
 _TABLES_TO_TRUNCATE = (
     "recommendation_results",
@@ -34,8 +50,13 @@ _TABLES_TO_TRUNCATE = (
 
 
 @pytest.fixture(scope="session")
+def test_dsn():
+    return TEST_DSN
+
+
+@pytest.fixture(scope="session")
 def engine():
-    eng = create_engine(TEST_DATABASE_URL)
+    eng = create_engine(TEST_DATABASE_URL, connect_args=_SEARCH_PATH_CONNECT_ARGS)
     try:
         with eng.connect() as conn:
             conn.execute(text("select 1"))

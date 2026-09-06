@@ -1,3 +1,5 @@
+set search_path = music_catalog, public;
+
 -- External identifiers (ISRC first-class among them) and a registry of
 -- which catalog/data sources the system is permitted to draw from, with
 -- enough metadata to answer "is this still a Phase-0-approved source"
