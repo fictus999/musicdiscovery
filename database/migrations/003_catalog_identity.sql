@@ -17,6 +17,21 @@ create index if not exists idx_recording_external_ids_recording
 create index if not exists idx_recording_external_ids_isrc
     on recording_external_ids (value) where id_type = 'isrc';
 
+-- Same shape as recording_external_ids, for work-level identifiers
+-- (ISWC — the composition identity, distinct from ISRC's recording
+-- identity). Kept as a separate table rather than a shared polymorphic
+-- one so the FK stays a real foreign key, not an unenforced convention.
+create table if not exists work_external_ids (
+    id         uuid primary key default gen_random_uuid(),
+    work_id    uuid not null references work(id) on delete cascade,
+    id_type    text not null,  -- 'iswc', ...
+    value      text not null,
+    verified   boolean not null default false,
+    created_at timestamptz not null default now(),
+    unique (id_type, value)
+);
+create index if not exists idx_work_external_ids_work on work_external_ids (work_id);
+
 create table if not exists catalog_sources (
     id                  text primary key,   -- 'musicbrainz', 'spotify', 'apple_music', 'cover_art_archive'
     display_name        text not null,

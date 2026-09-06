@@ -12,20 +12,24 @@ def _seed_recording(session, *, title: str, artist_name: str, length_ms: int, is
         ),
         {"name": artist_name, "norm": normalize_artist(artist_name)},
     ).scalar_one()
-    recording_id = session.execute(
-        text(
-            "insert into recording (title, normalized_title, length_ms) "
-            "values (:title, :norm, :length_ms) returning id"
-        ),
-        {"title": title, "norm": normalize_title(title), "length_ms": length_ms},
+    artist_credit_id = session.execute(
+        text("insert into artist_credit (name) values (:name) returning id"),
+        {"name": artist_name},
     ).scalar_one()
     session.execute(
         text(
-            "insert into recording_artists (recording_id, artist_id, credit_order) "
-            "values (:rid, :aid, 0)"
+            "insert into artist_credit_name (artist_credit_id, position, artist_id, name) "
+            "values (:acid, 0, :aid, :name)"
         ),
-        {"rid": recording_id, "aid": artist_id},
+        {"acid": artist_credit_id, "aid": artist_id, "name": artist_name},
     )
+    recording_id = session.execute(
+        text(
+            "insert into recording (artist_credit_id, title, normalized_title, length_ms) "
+            "values (:acid, :title, :norm, :length_ms) returning id"
+        ),
+        {"acid": artist_credit_id, "title": title, "norm": normalize_title(title), "length_ms": length_ms},
+    ).scalar_one()
     if isrc:
         session.execute(
             text(

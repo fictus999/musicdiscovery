@@ -17,25 +17,33 @@ _RANKING_FEATURES_SQL = text(
     """
     select r.id as recording_id,
            r.identity_confidence,
-           array_agg(distinct ra.artist_id::text) as artist_ids,
-           min(extract(year from rel.release_date))::int as release_year,
-           r.language
+           array_agg(distinct acn.artist_id::text) as artist_ids,
+           (select min(rg.first_release_date_year)
+              from track t
+              join medium m on m.id = t.medium_id
+              join release rel on rel.id = m.release_id
+              join release_group rg on rg.id = rel.release_group_id
+             where t.recording_id = r.id) as release_year,
+           (select min(rel.language)
+              from track t
+              join medium m on m.id = t.medium_id
+              join release rel on rel.id = m.release_id
+             where t.recording_id = r.id) as language
     from recording r
-    join recording_artists ra on ra.recording_id = r.id
-    left join release_recordings rr on rr.recording_id = r.id
-    left join release rel on rel.id = rr.release_id
+    join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id
     where r.id = :recording_id
-    group by r.id, r.identity_confidence, r.language
+    group by r.id, r.identity_confidence
     """
 )
 
 _CANDIDATE_IDS_BY_SHARED_ARTIST_SQL = text(
     """
     select distinct r2.id
-    from recording_artists ra1
-    join recording_artists ra2 on ra2.artist_id = ra1.artist_id and ra2.recording_id <> ra1.recording_id
-    join recording r2 on r2.id = ra2.recording_id
-    where ra1.recording_id = :recording_id
+    from artist_credit_name acn1
+    join recording r1 on r1.artist_credit_id = acn1.artist_credit_id
+    join artist_credit_name acn2 on acn2.artist_id = acn1.artist_id
+    join recording r2 on r2.artist_credit_id = acn2.artist_credit_id and r2.id <> r1.id
+    where r1.id = :recording_id
     limit :limit
     """
 )
@@ -43,10 +51,10 @@ _CANDIDATE_IDS_BY_SHARED_ARTIST_SQL = text(
 _SONG_DTO_SQL = text(
     """
     select r.id as recording_id, r.title, r.length_ms,
-           array_agg(distinct a.name) as artist_names
+           array_agg(distinct coalesce(nullif(acn.name, ''), a.name)) as artist_names
     from recording r
-    join recording_artists ra on ra.recording_id = r.id
-    join artist a on a.id = ra.artist_id
+    join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id
+    join artist a on a.id = acn.artist_id
     where r.id = :recording_id
     group by r.id, r.title, r.length_ms
     """
@@ -87,15 +95,22 @@ def get_ranking_features_bulk(session: Session, recording_ids: list[str]) -> dic
             """
             select r.id as recording_id,
                    r.identity_confidence,
-                   array_agg(distinct ra.artist_id::text) as artist_ids,
-                   min(extract(year from rel.release_date))::int as release_year,
-                   r.language
+                   array_agg(distinct acn.artist_id::text) as artist_ids,
+                   (select min(rg.first_release_date_year)
+                      from track t
+                      join medium m on m.id = t.medium_id
+                      join release rel on rel.id = m.release_id
+                      join release_group rg on rg.id = rel.release_group_id
+                     where t.recording_id = r.id) as release_year,
+                   (select min(rel.language)
+                      from track t
+                      join medium m on m.id = t.medium_id
+                      join release rel on rel.id = m.release_id
+                     where t.recording_id = r.id) as language
             from recording r
-            join recording_artists ra on ra.recording_id = r.id
-            left join release_recordings rr on rr.recording_id = r.id
-            left join release rel on rel.id = rr.release_id
+            join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id
             where r.id = any(:recording_ids)
-            group by r.id, r.identity_confidence, r.language
+            group by r.id, r.identity_confidence
             """
         ),
         {"recording_ids": recording_ids},

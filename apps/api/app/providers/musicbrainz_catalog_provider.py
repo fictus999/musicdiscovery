@@ -2,6 +2,14 @@
 (database/migrations/002-003). Never calls the live MusicBrainz API — that
 would reintroduce the 1 req/sec bottleneck this whole indexing strategy
 exists to avoid (see jobs/musicbrainz_ingest/README.md).
+
+Artist names come through artist_credit_name, not a direct recording<->
+artist join — MusicBrainz stores a recording's credited artist string as a
+reusable artist_credit row (see database/migrations/002_catalog_core.sql
+and docs/architecture.md section A). `coalesce(nullif(acn.name, ''), a.name)`
+prefers the credited display name (which can differ from the artist's
+canonical name, e.g. a stylization) and falls back to the artist's own name
+when no override was recorded.
 """
 
 from sqlalchemy import text
@@ -22,14 +30,14 @@ _SEARCH_SQL = text(
     select r.id as recording_id,
            r.title,
            r.length_ms,
-           array_agg(a.name order by ra.credit_order) as artist_names,
+           array_agg(coalesce(nullif(acn.name, ''), a.name) order by acn.position) as artist_names,
            greatest(
                similarity(r.normalized_title, :nq),
                max(similarity(a.normalized_name, :nq))
            ) as score
     from recording r
-    join recording_artists ra on ra.recording_id = r.id
-    join artist a on a.id = ra.artist_id
+    join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id
+    join artist a on a.id = acn.artist_id
     where r.normalized_title % :nq or a.normalized_name % :nq
     group by r.id, r.title, r.length_ms
     order by score desc
@@ -40,11 +48,11 @@ _SEARCH_SQL = text(
 _ISRC_LOOKUP_SQL = text(
     """
     select r.id as recording_id, r.title, r.length_ms,
-           array_agg(a.name order by ra.credit_order) as artist_names
+           array_agg(coalesce(nullif(acn.name, ''), a.name) order by acn.position) as artist_names
     from recording_external_ids ext
     join recording r on r.id = ext.recording_id
-    join recording_artists ra on ra.recording_id = r.id
-    join artist a on a.id = ra.artist_id
+    join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id
+    join artist a on a.id = acn.artist_id
     where ext.id_type = 'isrc' and ext.value = :isrc
     group by r.id, r.title, r.length_ms
     """
@@ -53,10 +61,10 @@ _ISRC_LOOKUP_SQL = text(
 _METADATA_SQL = text(
     """
     select r.id as recording_id, r.normalized_title, r.length_ms,
-           array_agg(a.name order by ra.credit_order) as artist_names
+           array_agg(coalesce(nullif(acn.name, ''), a.name) order by acn.position) as artist_names
     from recording r
-    join recording_artists ra on ra.recording_id = r.id
-    join artist a on a.id = ra.artist_id
+    join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id
+    join artist a on a.id = acn.artist_id
     where r.normalized_title % :nq
     group by r.id, r.normalized_title, r.length_ms
     limit 25
@@ -162,10 +170,11 @@ class MusicBrainzCatalogProvider(CatalogProvider):
     async def get_recording_metadata(self, source_id: str) -> CatalogCandidate | None:
         row = self._session.execute(
             text(
-                "select r.id, r.title, r.length_ms, array_agg(a.name order by ra.credit_order) as artist_names "
+                "select r.id, r.title, r.length_ms, "
+                "array_agg(coalesce(nullif(acn.name, ''), a.name) order by acn.position) as artist_names "
                 "from recording r "
-                "join recording_artists ra on ra.recording_id = r.id "
-                "join artist a on a.id = ra.artist_id "
+                "join artist_credit_name acn on acn.artist_credit_id = r.artist_credit_id "
+                "join artist a on a.id = acn.artist_id "
                 "where r.id = :id group by r.id, r.title, r.length_ms"
             ),
             {"id": source_id},
