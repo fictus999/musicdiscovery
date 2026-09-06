@@ -3,6 +3,12 @@
 This document is the canonical record of the Phase 1 architecture decisions, and why
 each one was made. It supersedes any earlier informal description of the schema.
 
+> **Status: provisional.** The canonical schema (section A) and the sizing in sections C/G/H
+> are locked in shape but not in final capacity — the database-capacity benchmark (section G)
+> has not been run yet. Do not treat the migrations in `database/migrations/` as final, and do
+> not make further piecemeal schema changes until that benchmark and the commercial-data
+> review (section F) both close. See `docs/phase-0-checklist.md` for exactly what's still open.
+
 ## A. Canonical entity/data model
 
 The canonical catalog mirrors MusicBrainz's own entity graph, verified against the
@@ -88,15 +94,21 @@ throws away information MusicBrainz's own dump provides for free.
 
 `developer.spotify.com` and `musicbrainz.org` are both blocked by this environment's
 egress proxy, so the schema above was **not** confirmed by reading MusicBrainz's docs
-pages directly. It was instead verified against `mbdata` (`pip install mbdata`, version
-31.0.1), MetaBrainz's own maintained SQLAlchemy mirror of the real schema, read directly
-from the installed package on disk (`site-packages/mbdata/models.py`) — an authoritative
-primary source, just reached a different way than a docs fetch. The license breakdown
-came from search-engine-aggregated summaries of `musicbrainz.org/doc/About/Data_License`,
-which is a materially weaker source than reading the page itself. **Confirm the CC0 /
-CC BY-NC-SA boundary directly against that page in Phase 0** before this schema is
-treated as legally final — the summary is consistent across multiple independent
-searches, but nobody on this project has read the primary source yet.
+pages directly from inside this session. It was instead verified against `mbdata`
+(`pip install mbdata`, version 31.0.1), MetaBrainz's own maintained SQLAlchemy mirror of
+the real schema, read directly from the installed package on disk
+(`site-packages/mbdata/models.py`) — an authoritative primary source, just reached a
+different way than a docs fetch. `mbdata`'s installed version (31) matches MusicBrainz's
+current schema version (31, per the project's own Phase 0 research below), so there is no
+version-skew concern between what was read and what production will ingest.
+
+The CC0 / CC BY-NC-SA boundary, current dataset scale, and dump size (section C) have
+since been confirmed through the project's own Phase 0 research (see
+`docs/phase-0-checklist.md`) rather than this session's search-summary corroboration —
+those figures now supersede the earlier `[Likely]`/`[Guessing]`-tagged estimates. What
+still hasn't been independently read by this session specifically is the exact dump
+tarball layout (which archive carries `release_group_meta`/`isrc`/`l_recording_work`, and
+the precise extracted file paths) — tracked as `docs/phase-0-checklist.md` item 9.
 
 ## B. Ingestion architecture
 
@@ -144,15 +156,20 @@ always runs against our own indexed copy.
 
 ## C. Storage/indexing strategy
 
-MusicBrainz's public statistics (as of a May 2026 snapshot; **[Likely]**, not
-independently re-verified against `musicbrainz.org/statistics` directly due to the
-egress block) put the dataset at roughly 2.8M artists, 5.4M releases, 38.7M recordings.
-**[Guessing]**: for the ~15 tables Phase 1 actually ingests (excluding the much larger
-full ~300-table MusicBrainz schema, and excluding the NC-licensed tag tables entirely),
-a reasonable order-of-magnitude estimate is **20–60GB** including trigram/GIN indexes —
-this is *not* a measured number and should not be treated as a budget commitment. The
-first real ingestion dry run (Phase 1, against a disposable staging database) should
-measure actual disk usage before the paid tier size is finalized.
+Per the project's Phase 0 research (superseding this session's earlier search-summary
+estimate): the current MusicBrainz database holds roughly **40M recordings, 57M tracks,
+and 65M relationships**; the core dump compresses to roughly **7GB**; MusicBrainz's own
+server documentation recommends **60GB+ free disk for a full database** (all ~300 tables,
+including edit history, annotations, and every vocabulary table); current schema version
+is **31** (matching the installed `mbdata==31.0.1` used to verify section A).
+
+That 60GB figure is a ceiling for the *full* replica, not for the ~15-table subset this
+project ingests (core entity tables only — no tags, annotations, ratings, or edit
+history, all of which are excluded on licensing grounds regardless of size; see section F).
+**How much smaller our subset is than 60GB is not yet known** — estimating a fraction
+from the outside would be exactly the kind of unmeasured assumption this project has
+already been burned by twice (the Spotify quota assumption, the first-pass ingestion
+design). Section G defines how that number gets measured for real instead.
 
 Indexing:
 - `gin_trgm_ops` trigram indexes on every `normalized_*` text column used for search
@@ -167,14 +184,17 @@ Indexing:
 
 ## D. Required paid infrastructure components
 
-- **Managed PostgreSQL sized for the estimate in section C**, not the Supabase free
-  tier's 500MB. Recommendation: **stay on Supabase Pro** ($25/mo base, 8GB database
-  included, $0.125/GB/month overage — confirmed current 2026 pricing) rather than
-  migrating to a separate Postgres host immediately. At the 20–60GB estimate, overage
-  is roughly $1.50–$6.50/month on top of the base plan — cheap enough that the
-  integration convenience (Auth already lives there, one less service to operate) wins
-  over a dedicated host for now. This is a "for now" call, not a permanent one — see
-  point 4's portability requirement.
+- **Managed PostgreSQL**, not the Supabase free tier's 500MB — mandatory from Phase 1
+  regardless of exact size. **Do not assume Supabase Pro's included 8GB is sufficient**;
+  section C's "how much smaller than 60GB" question is unresolved, and the overage math
+  only becomes a real decision once section G's benchmark produces an actual number.
+  Provisional direction (not a sizing commitment): Supabase Pro remains the leading
+  candidate over standing up a separate Postgres host immediately, purely on integration
+  grounds (Auth already lives there, one less service to operate) — but if the benchmark
+  comes back large enough that Supabase's per-GB overage rate stops being the cheapest
+  option (a real possibility MusicBrainz's own 60GB full-replica figure raises), a
+  dedicated host is back on the table. That comparison is deferred to section H, not
+  decided here.
 - **Schema stays vanilla, standard PostgreSQL** — no Supabase-proprietary extensions or
   RLS-dependent design for the catalog tables — so a later move to Neon, RDS, or another
   managed Postgres is a `pg_dump`/`pg_restore`, not a rewrite. (Neon's current storage
@@ -197,10 +217,85 @@ in this revision specifically:
 
 - **Resolved**: canonical schema is reconciled around MusicBrainz's real entity model
   (this document, section A). Ingestion no longer assumes a Python line-parser; it uses
-  native `COPY` staging (section B).
-- **Newly identified, not resolved**: MusicBrainz's own tag/genre data is off-limits for
-  commercial use (CC BY-NC-SA) — genre/style similarity has no data source yet and needs
-  its own Phase 0 audit, separate from the artwork and lyrics sources already tracked.
+  native `COPY` staging (section B). CC0 core / CC BY-NC-SA supplementary boundary,
+  current dataset scale, and core dump size are now confirmed via the project's own
+  Phase 0 research (section C).
+- **Newly identified, not resolved**: Cover Art Archive's commercial-use position is
+  separate from MusicBrainz's core-data CC0 grant and has not been confirmed (section F)
+  — no CAA data may be ingested into the commercial database until it is. Same for
+  MetaBrainz's Live Data Feed, which is a distinct commercial product from the static CC0
+  dump snapshots and carries its own terms.
 - **Still open, unchanged**: Spotify/Apple dashboard verification, artwork source
-  selection, MusicBrainz license boundary confirmed from the primary source page (not
-  just search summaries), final ingestion compute sizing from a real dry run.
+  selection (blocked on the CAA question above), exact dump tarball/file-path layout,
+  and — the new blocking item — the database capacity benchmark (section G) that
+  section C's storage estimate depends on.
+
+## F. Commercial data policy
+
+Every data source this project touches has a different commercial-use position. Treating
+them as one undifferentiated "MusicBrainz data" bucket is exactly the mistake that would
+have shipped a license violation in the first schema pass (tag/genre data). This table is
+the single place that distinction is tracked; nothing overrides it without an explicit
+update here.
+
+| Source | License / commercial status | Ingestion status |
+|---|---|---|
+| **MusicBrainz core entity data** (artist, release, recording, release_group, work, ISRC, ISWC, and the relationships between them) | **CC0** — public domain, no attribution required, unrestricted commercial use. Confirmed via the project's Phase 0 research. | **Permitted, and the only data this schema ingests today** (section A's tables). |
+| **MusicBrainz supplementary/tag/genre data** (`recording_tag`, `release_group_tag`, `annotation`, `rating`, edit history, and similar) | **CC BY-NC-SA 3.0 — non-commercial.** Attribution + share-alike required even for the permitted non-commercial uses. | **Excluded entirely** from the canonical catalog. Not staged, not transformed, not queried. Would need a separate commercial license from MetaBrainz to use at all — not attempted in Phase 1. |
+| **MetaBrainz Live Data Feed** (near-real-time replication service, a distinct paid MetaBrainz product from the static dump downloads) | **Not established.** Its terms are commercial-product terms, not an extension of the CC0 grant on the static dumps — the two must not be conflated. | **Not in use, and not assumed usable.** If a future delta-refresh need makes the Live Data Feed attractive (versus this project's own scheduled dump-based refresh), its licensing/pricing must be evaluated on its own before adoption. |
+| **Cover Art Archive** | **Not established for this project's commercial use.** CAA is operated by the Internet Archive in partnership with MetaBrainz; its image content's redistribution/commercial-use terms have not been confirmed and must not be assumed to inherit MusicBrainz's own CC0 status. | **Blocked.** No CAA-sourced artwork may be cached, stored, or served by this product until this is resolved — see `docs/phase-0-checklist.md`. `ArtworkProvider`'s Cover-Art-Archive adapter exists in code as an interface implementation, not a green light to store its output commercially. |
+| **Provider artwork** (Spotify/Apple album art surfaced through their own catalog APIs) | Governed by each provider's own developer terms (Spotify Developer Policy, Apple Developer Program License Agreement), not MusicBrainz's license at all. | Same status as every other Spotify/Apple catalog use in this project: permitted only within whatever Client-Credentials-scoped catalog terms Phase 0's provider-dashboard review confirms — not yet independently verified (see `docs/phase-0-checklist.md`). |
+
+**MetaBrainz commercial account/support status**: whether this project has, or needs, a
+formal commercial relationship with MetaBrainz (their own site invites commercial users to
+"contact them" for licensing beyond the free CC0 dumps, and separately sells Live Data Feed
+access) is tracked but not yet decided — see `docs/phase-0-checklist.md` item 13.
+Nothing above requires it for the CC0 core data (CC0 already permits unrestricted
+commercial use with no account needed), but a documented relationship may still be the
+right move for support/reliability reasons on a production dependency this central.
+
+## G. Database capacity benchmark plan
+
+Section C deliberately stops short of a final storage number. This is the plan for
+producing one, to run during Phase 1's first real ingestion attempt (not before — it
+needs the actual dump, which needs remote compute per point 9's "never the developer's
+Mac" rule). Every measurement below should be recorded, not just the final figure — a
+number with no breakdown can't be sanity-checked when the dataset grows.
+
+1. **Compressed dump size** — the downloaded tarball(s) as fetched. Sanity check against
+   the ~7GB core-dump figure in section C; a large deviation means the wrong tarball, a
+   schema-version mismatch, or a MusicBrainz-side dataset-size change worth re-noting here.
+2. **Uncompressed staging size** — total size of `mb_staging.*` after `COPY` load, before
+   any transform runs. This is the "remote compute needs at least this much scratch disk"
+   number (point 9 of the locked assumptions).
+3. **PostgreSQL heap size** — `pg_total_relation_size` (excluding indexes) summed across
+   the canonical tables in section A, immediately after the transform step, before
+   `ANALYZE`/index rebuild.
+4. **Index size** — trigram/GIN and btree index size, separately from heap size (Postgres
+   reports these independently; conflating them hides which one to tune if either grows
+   disproportionately). Trigram indexes in particular can be a large multiple of the
+   underlying text column size — measure, don't assume a ratio.
+5. **WAL/temp space requirements** — peak WAL generation and any `work_mem`-driven temp
+   file usage during the bulk transform (large batched `INSERT ... ON CONFLICT` and the
+   `id_map`-joined `SELECT`s in `transform.py` are the likely peak consumers). This is a
+   *transient* requirement (during ingestion, not steady-state), but the paid tier still
+   needs enough headroom to survive it without throttling mid-import.
+6. **Final database size** — heap + indexes + any residual staging-schema data not yet
+   dropped, at rest, after a completed and validated import.
+7. **Expected growth** — MusicBrainz's dataset grows continuously (new releases added
+   daily); a delta refresh (point 8 of the locked assumptions, via `refresh.py`) adds
+   incrementally rather than re-importing from scratch, but the growth *rate* — how much
+   the database grows per month of MusicBrainz's own growth — should be estimated from
+   two dump versions a known interval apart once that data point exists, not guessed.
+
+## H. Minimum production PostgreSQL capacity
+
+**Not yet defined — deliberately.** Section E of the locked assumptions is explicit that
+this must come from measurement (section G), not assumption; committing to a number now
+would repeat the exact mistake section C's superseded 20–60GB guess was. Once section G's
+benchmark runs, this section gets replaced with: a specific minimum storage figure (final
+database size + a growth buffer sized from the measured growth rate, not a round-number
+guess), the corresponding Supabase Pro overage cost (or the alternative-provider comparison
+from section D if Supabase stops being cheapest at that size), and the compute/scratch-disk
+spec for the remote ingestion host from section G's steps 1–2. Until then, treat any
+capacity number mentioned elsewhere in this project as provisional.
