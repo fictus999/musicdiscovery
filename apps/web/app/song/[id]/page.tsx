@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getRecommendations, saveSong, unsaveSong, type RecommendationResponse } from "@/lib/api";
+import { getRecommendations, getSavedSongs, saveSong, unsaveSong, type RecommendationResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function SongDetailPage() {
   // Route params arrive as a Promise on the `params` prop in this Next.js
   // version (App Router) — useParams() is the client-component-safe way
   // to read them without an `await`/`use()` unwrap dance.
   const { id } = useParams<{ id: string }>();
+  const { loading: authLoading } = useAuth();
   const [data, setData] = useState<RecommendationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -28,6 +30,25 @@ export default function SongDetailPage() {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    // Wait for AuthProvider's effect (see app/saved/page.tsx for why) —
+    // and signed-out visitors simply never have this song in their saved
+    // list, so a failure here (401, no session) is not an error state,
+    // just "not saved".
+    if (!id || authLoading) return;
+    let cancelled = false;
+    getSavedSongs()
+      .then((response) => {
+        if (!cancelled) setSaved(response.songs.some((song) => song.recording_id === id));
+      })
+      .catch(() => {
+        /* not signed in, or saved-songs unavailable — leave as not-saved */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, authLoading]);
 
   async function toggleSave() {
     if (!id) return;
