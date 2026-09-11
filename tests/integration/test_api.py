@@ -115,16 +115,36 @@ def test_full_search_and_recommendation_flow(engine, db_session):
         assert get_resp.status_code == 200
         assert get_resp.json()["model_version"] == "baseline-v1"
 
-        user_id = db_session.execute(
-            text("insert into app_users (id, email) values (gen_random_uuid(), 'test@example.com') returning id")
-        ).scalar_one()
-        db_session.commit()
+        # A brand-new user id that has never been inserted into app_users —
+        # save_song must create that row itself (ensure_app_user), not rely
+        # on something else having done it first (that was a real bug: the
+        # FK would otherwise reject the very first write from a genuinely
+        # new Supabase-authenticated user).
+        import uuid
 
-        save_resp = client.post(f"/songs/{ref_id}/save", headers={"X-User-Id": str(user_id)})
+        user_id = str(uuid.uuid4())
+        auth_headers = {"X-User-Id": user_id}
+
+        # Search while authenticated should log to this user's history.
+        authed_search = client.get("/music/search", params={"q": "nights"}, headers=auth_headers)
+        assert authed_search.status_code == 200
+
+        save_resp = client.post(f"/songs/{ref_id}/save", headers=auth_headers)
         assert save_resp.status_code == 200
 
         unauthenticated = client.post(f"/songs/{ref_id}/save")
         assert unauthenticated.status_code == 401
+
+        saved_resp = client.get("/me/saved-songs", headers=auth_headers)
+        assert saved_resp.status_code == 200
+        assert any(s["recording_id"] == ref_id for s in saved_resp.json()["songs"])
+
+        history_resp = client.get("/me/history", headers=auth_headers)
+        assert history_resp.status_code == 200
+        assert any(e["query_text"] == "nights" for e in history_resp.json()["entries"])
+
+        assert client.get("/me/saved-songs").status_code == 401
+        assert client.get("/me/history").status_code == 401
     finally:
         app.dependency_overrides.clear()
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getRecommendations, type RecommendationResponse } from "@/lib/api";
+import { getRecommendations, saveSong, unsaveSong, type RecommendationResponse } from "@/lib/api";
 
 export default function SongDetailPage() {
   // Route params arrive as a Promise on the `params` prop in this Next.js
@@ -11,6 +11,8 @@ export default function SongDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<RecommendationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -26,6 +28,22 @@ export default function SongDetailPage() {
       cancelled = true;
     };
   }, [id]);
+
+  async function toggleSave() {
+    if (!id) return;
+    setSaveError(null);
+    try {
+      if (saved) {
+        await unsaveSong(id);
+        setSaved(false);
+      } else {
+        await saveSong(id);
+        setSaved(true);
+      }
+    } catch {
+      setSaveError("Could not update saved songs right now.");
+    }
+  }
 
   if (error) {
     return (
@@ -46,8 +64,16 @@ export default function SongDetailPage() {
   return (
     <main className="container">
       <section className="hero">
-        <h1>{data.reference.title}</h1>
-        <p>{data.reference.artist_names.join(", ")}</p>
+        <div className="song-detail-header">
+          <div>
+            <h1>{data.reference.title}</h1>
+            <p>{data.reference.artist_names.join(", ")}</p>
+          </div>
+          <button className="btn" onClick={toggleSave}>
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
+        {saveError && <p className="empty-state">{saveError}</p>}
       </section>
 
       <ul className="song-list">

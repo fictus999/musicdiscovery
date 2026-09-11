@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routes import health, recommendations, search, songs
+from app.routes import health, me, recommendations, search, songs
 
 
 def create_app() -> FastAPI:
@@ -20,6 +20,7 @@ def create_app() -> FastAPI:
     app.include_router(search.router)
     app.include_router(recommendations.router)
     app.include_router(songs.router)
+    app.include_router(me.router)
 
     return app
 

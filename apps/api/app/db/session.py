@@ -13,7 +13,11 @@ _engine: Engine | None = None
 # Setting this here means every query elsewhere in the codebase can keep
 # using bare table names (recording, saved_songs, ...) without schema
 # qualification; Postgres resolves each name against this path in order.
-SEARCH_PATH = "music_catalog, app, public"
+# No spaces around the commas: this string is passed through libpq's
+# "options" connection parameter, which splits on whitespace before handing
+# arguments to the server — "music_catalog, app, public" becomes three
+# broken tokens ("music_catalog,", "app,", "public") instead of one -c flag.
+SEARCH_PATH = "music_catalog,app,public"
 
 
 def get_engine() -> Engine:

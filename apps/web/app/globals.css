@@ -46,6 +46,38 @@ button {
   padding: 20px 0;
 }
 
+.nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.nav-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.nav-links a:hover {
+  color: var(--text);
+}
+
+.nav-user {
+  color: var(--text-muted);
+}
+
+.nav-links button.link-btn {
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+
 .brand {
   font-size: 15px;
   letter-spacing: 0.04em;
@@ -63,6 +95,13 @@ button {
   font-weight: 600;
   line-height: 1.25;
   margin: 0 0 12px;
+}
+
+.song-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
 }
 
 .hero p {
@@ -118,6 +157,9 @@ button {
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
   padding: 8px 12px;
   text-decoration: none;
 }

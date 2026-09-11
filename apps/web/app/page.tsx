@@ -1,28 +1,44 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { searchSongs, type SongDTO } from "@/lib/api";
 
-export default function HomePage() {
-  const [query, setQuery] = useState("");
+function HomePageContent() {
+  const searchParams = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [results, setResults] = useState<SongDTO[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!query.trim()) return;
+  async function runSearch(searchQuery: string) {
+    if (!searchQuery.trim()) return;
     setLoading(true);
     setError(null);
     try {
-      const response = await searchSongs(query.trim());
+      const response = await searchSongs(searchQuery.trim());
       setResults(response.results);
     } catch {
       setError("Search is unavailable right now. Try again shortly.");
     } finally {
       setLoading(false);
     }
+  }
+
+  // Supports "Search again" links from /history (?q=...) running the
+  // search automatically rather than just prefilling the box.
+  useEffect(() => {
+    const initialQuery = searchParams.get("q");
+    if (initialQuery) {
+      runSearch(initialQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await runSearch(query);
   }
 
   return (
@@ -73,5 +89,13 @@ export default function HomePage() {
         </ul>
       )}
     </main>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={null}>
+      <HomePageContent />
+    </Suspense>
   );
 }

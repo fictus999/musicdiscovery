@@ -5,6 +5,14 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "apps" / "api"))
 
+# Must be set before anything imports app.config (its Settings() singleton
+# reads env vars once, at import time) — tests exercise the dev-mode auth
+# path (X-User-Id header) rather than requiring a live Supabase project.
+# See apps/api/app/auth.py and tests/unit/test_auth.py (the latter tests
+# the *real* JWKS verification path directly, with a locally generated key,
+# independent of this flag).
+os.environ.setdefault("AUTH_DEV_MODE", "true")
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -31,6 +39,7 @@ _TABLES_TO_TRUNCATE = (
     "recommendations",
     "model_versions",
     "saved_songs",
+    "search_history",
     "app_users",
     "recording_external_ids",
     "work_external_ids",

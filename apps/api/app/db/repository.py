@@ -205,7 +205,27 @@ def persist_recommendation_results(session: Session, *, recommendation_id: str, 
     session.commit()
 
 
+def ensure_app_user(session: Session, *, user_id: str, email: str | None = None) -> None:
+    """Our own app_users table mirrors Supabase Auth's user id (see
+    005_app_users_and_entitlements.sql) rather than duplicating
+    authentication, but nothing creates that mirror row automatically —
+    a real Supabase-authenticated user's first write (save a song, run a
+    search) would otherwise hit a foreign-key violation on app_users
+    that's never been populated. Call this before any write that's
+    FK-constrained against app_users, not just from one call site, so a
+    forgotten call site elsewhere can't silently reintroduce the bug.
+    """
+    session.execute(
+        text(
+            "insert into app_users (id, email) values (:id, :email) "
+            "on conflict (id) do nothing"
+        ),
+        {"id": user_id, "email": email},
+    )
+
+
 def save_song(session: Session, *, user_id: str, recording_id: str) -> None:
+    ensure_app_user(session, user_id=user_id)
     session.execute(
         text(
             "insert into saved_songs (user_id, recording_id) values (:user_id, :recording_id) "
@@ -222,3 +242,39 @@ def unsave_song(session: Session, *, user_id: str, recording_id: str) -> None:
         {"user_id": user_id, "recording_id": recording_id},
     )
     session.commit()
+
+
+def get_saved_songs(session: Session, *, user_id: str, limit: int = 50) -> list[SongDTO]:
+    rows = session.execute(
+        text(
+            "select recording_id from saved_songs where user_id = :user_id "
+            "order by saved_at desc limit :limit"
+        ),
+        {"user_id": user_id, "limit": limit},
+    ).all()
+    songs = []
+    for row in rows:
+        song = get_song_dto(session, str(row[0]))
+        if song is not None:
+            songs.append(song)
+    return songs
+
+
+def record_search(session: Session, *, user_id: str, query_text: str) -> None:
+    ensure_app_user(session, user_id=user_id)
+    session.execute(
+        text("insert into search_history (user_id, query_text) values (:user_id, :query_text)"),
+        {"user_id": user_id, "query_text": query_text},
+    )
+    session.commit()
+
+
+def get_search_history(session: Session, *, user_id: str, limit: int = 50) -> list[dict]:
+    rows = session.execute(
+        text(
+            "select query_text, created_at from search_history where user_id = :user_id "
+            "order by created_at desc limit :limit"
+        ),
+        {"user_id": user_id, "limit": limit},
+    ).mappings().all()
+    return [{"query_text": r["query_text"], "created_at": r["created_at"].isoformat()} for r in rows]

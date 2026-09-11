@@ -1,6 +1,7 @@
 from .song import ProviderLink, SongDTO
 from .search import SearchRequest, SearchResponse
 from .recommendations import RecommendationRequest, RecommendationResponse, RecommendationResult
+from .me import SavedSongsResponse, HistoryEntry, HistoryResponse
 
 __all__ = [
     "SongDTO",
@@ -10,4 +11,7 @@ __all__ = [
     "RecommendationRequest",
     "RecommendationResponse",
     "RecommendationResult",
+    "SavedSongsResponse",
+    "HistoryEntry",
+    "HistoryResponse",
 ]
