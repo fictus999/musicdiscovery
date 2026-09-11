@@ -1,0 +1,24 @@
+services:
+  postgres:
+    # Official pgvector-maintained image: Postgres 16 with pgvector already
+    # built in, so pg_trgm/pgcrypto (standard contrib extensions bundled
+    # with any Postgres image) and vector are all available via `CREATE
+    # EXTENSION` with no custom Dockerfile needed. $0, no managed service.
+    image: pgvector/pgvector:pg16
+    container_name: musicdiscovery-postgres
+    environment:
+      POSTGRES_USER: musicdiscovery
+      POSTGRES_PASSWORD: musicdiscovery
+      POSTGRES_DB: musicdiscovery
+    ports:
+      - "5432:5432"
+    volumes:
+      - musicdiscovery-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U musicdiscovery -d musicdiscovery"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  musicdiscovery-postgres-data:
