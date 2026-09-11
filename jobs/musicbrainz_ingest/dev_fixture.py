@@ -186,35 +186,72 @@ def _insert_rows(conn, table: str, rows: list[dict]) -> None:
     )
 
 
-def stage_fixture(conn) -> None:
-    """Populates mb_staging with the fixture data. Caller is responsible
-    for ensure_staging_schema() having already run (see staging.py) and
-    for the schema being empty of conflicting ids (fresh dev DB, or call
-    this once).
+# Table order matters: children must be inserted after the parents they
+# reference, or the FK-validity checks transform.py runs against staging
+# would (correctly) reject them. Both stage_fixture() (this hand-authored
+# fixture) and load_dataset() (any dataset shaped like these globals — see
+# fetch_real_catalog.py) insert in this order.
+_STAGING_TABLE_ORDER = [
+    "artist",
+    "artist_credit",
+    "artist_credit_name",
+    "release_group_primary_type",
+    "release_group",
+    "release_group_meta",
+    "release_status",
+    "language",
+    "release",
+    "medium",
+    "recording",
+    "track",
+    "work",
+    "isrc",
+    "iswc",
+    "l_recording_work",
+]
+
+
+def stage_dataset(conn, dataset: dict[str, list[dict]]) -> None:
+    """Populates mb_staging with `dataset` (same table-name keys as this
+    module's ARTISTS/ARTIST_CREDITS/.../RECORDING_WORKS globals — see
+    fetch_real_catalog.py for a dataset built from real MusicBrainz data
+    instead of hand-authored fixture rows). Caller is responsible for
+    ensure_staging_schema() having already run (see staging.py) and for
+    the schema being empty of conflicting ids (fresh dev DB, or call this
+    once).
     """
-    _insert_rows(conn, "artist", ARTISTS)
-    _insert_rows(conn, "artist_credit", ARTIST_CREDITS)
-    _insert_rows(conn, "artist_credit_name", ARTIST_CREDIT_NAMES)
-    _insert_rows(conn, "release_group_primary_type", RELEASE_GROUP_PRIMARY_TYPES)
-    _insert_rows(conn, "release_group", RELEASE_GROUPS)
-    _insert_rows(conn, "release_group_meta", RELEASE_GROUP_META)
-    _insert_rows(conn, "release_status", RELEASE_STATUSES)
-    _insert_rows(conn, "language", LANGUAGES)
-    _insert_rows(conn, "release", RELEASES)
-    _insert_rows(conn, "medium", MEDIA)
-    _insert_rows(conn, "recording", RECORDINGS)
-    _insert_rows(conn, "track", TRACKS)
-    _insert_rows(conn, "work", WORKS)
-    _insert_rows(conn, "isrc", ISRCS)
-    _insert_rows(conn, "iswc", ISWCS)
-    _insert_rows(conn, "l_recording_work", RECORDING_WORKS)
+    for table in _STAGING_TABLE_ORDER:
+        _insert_rows(conn, table, dataset.get(table, []))
 
 
-def load_dev_fixture(engine: Engine, dsn: str, staging_schema: str = "mb_staging") -> dict[str, int]:
-    """Stages the fixture and runs it through the real transform pipeline
-    (transform_all) — the same code path production ingestion uses, just
-    pointed at ~30 hand-authored rows instead of a real dump. Returns the
-    transform's row counts per table.
+def stage_fixture(conn) -> None:
+    stage_dataset(
+        conn,
+        {
+            "artist": ARTISTS,
+            "artist_credit": ARTIST_CREDITS,
+            "artist_credit_name": ARTIST_CREDIT_NAMES,
+            "release_group_primary_type": RELEASE_GROUP_PRIMARY_TYPES,
+            "release_group": RELEASE_GROUPS,
+            "release_group_meta": RELEASE_GROUP_META,
+            "release_status": RELEASE_STATUSES,
+            "language": LANGUAGES,
+            "release": RELEASES,
+            "medium": MEDIA,
+            "recording": RECORDINGS,
+            "track": TRACKS,
+            "work": WORKS,
+            "isrc": ISRCS,
+            "iswc": ISWCS,
+            "l_recording_work": RECORDING_WORKS,
+        },
+    )
+
+
+def load_dataset(engine: Engine, dsn: str, dataset: dict[str, list[dict]], staging_schema: str = "mb_staging") -> dict[str, int]:
+    """Stages `dataset` and runs it through the real transform pipeline
+    (transform_all) — the same code path production ingestion uses.
+    Returns the transform's row counts per table.
 
     `engine` is a SQLAlchemy engine (used for transform_all, which runs
     ORM-agnostic SQL through a Connection); `dsn` is a plain psycopg-style
@@ -230,8 +267,40 @@ def load_dev_fixture(engine: Engine, dsn: str, staging_schema: str = "mb_staging
 
     ensure_staging_schema(dsn, IngestConfig())
     with engine.begin() as conn:
-        stage_fixture(conn)
+        stage_dataset(conn, dataset)
         return transform_all(conn, staging_schema)
+
+
+def load_dev_fixture(engine: Engine, dsn: str, staging_schema: str = "mb_staging") -> dict[str, int]:
+    """Stages the ~30-row hand-authored fixture above and runs it through
+    the real transform pipeline. See load_dataset() for the generalized
+    version this delegates to (used by fetch_real_catalog.py's output for
+    the beta-demo catalog, which is real MusicBrainz data, not this
+    fixture).
+    """
+    return load_dataset(
+        engine,
+        dsn,
+        {
+            "artist": ARTISTS,
+            "artist_credit": ARTIST_CREDITS,
+            "artist_credit_name": ARTIST_CREDIT_NAMES,
+            "release_group_primary_type": RELEASE_GROUP_PRIMARY_TYPES,
+            "release_group": RELEASE_GROUPS,
+            "release_group_meta": RELEASE_GROUP_META,
+            "release_status": RELEASE_STATUSES,
+            "language": LANGUAGES,
+            "release": RELEASES,
+            "medium": MEDIA,
+            "recording": RECORDINGS,
+            "track": TRACKS,
+            "work": WORKS,
+            "isrc": ISRCS,
+            "iswc": ISWCS,
+            "l_recording_work": RECORDING_WORKS,
+        },
+        staging_schema,
+    )
 
 
 if __name__ == "__main__":

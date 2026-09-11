@@ -1,0 +1,31 @@
+name: Fetch demo catalog
+
+# Manual-only, on purpose: this hits the live musicbrainz.org API (rate
+# limited to ~1 req/sec by the musicbrainzngs client) to build the
+# beta-demo catalog — see jobs/musicbrainz_ingest/fetch_real_catalog.py's
+# docstring for scope and why this can't run from the main dev sandbox
+# (its network egress can't reach musicbrainz.org at all). It must never
+# run on every push/PR like ci.yml does — that would hammer MusicBrainz's
+# API on every commit for no reason.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install musicbrainzngs
+
+      - run: python -m jobs.musicbrainz_ingest.fetch_real_catalog demo_catalog.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-catalog
+          path: demo_catalog.json
+          retention-days: 7
